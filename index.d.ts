@@ -35,6 +35,9 @@ export interface ILightBoxProps {
     zoomInLabel?: string;
     zoomOutLabel?: string;
     closeLabel?: string;
+    mainSrcMimeType?: string;
+    nextSrcMimeType?: string;
+    prevSrcMimeType?: string;
 }
 
 export default class Lightbox extends React.Component<ILightBoxProps, never> { }

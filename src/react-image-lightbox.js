@@ -1,11 +1,20 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
 import Modal from 'react-modal';
+import { Player } from 'video-react';
+import { FileIcon, defaultStyles } from 'react-file-icon';
+// import ReactPlayer, { FilePlayer } from 'react-player';
 import {
   translate,
   getWindowWidth,
   getWindowHeight,
   getHighestSafeWindowContext,
+  isVideo,
+  isAudio,
+  isPDF,
+  isImage,
+  isText,
+  getExtension
 } from './util';
 import {
   KEYS,
@@ -26,6 +35,7 @@ import {
   MIN_SWIPE_DISTANCE,
 } from './constant';
 import './style.css';
+import 'video-react/dist/video-react.css'; // import css
 
 class ReactImageLightbox extends Component {
   static isTargetMatchImage(target) {
@@ -60,13 +70,13 @@ class ReactImageLightbox extends Component {
   }
 
   // Request to transition to the previous image
-  static getTransform({ x = 0, y = 0, zoom = 1, width, targetWidth }) {
+  static getTransform({ x = 0, y = 0, zoom = 1, width, targetWidth, src }) {
     let nextX = x;
     const windowWidth = getWindowWidth();
-    if (width > windowWidth) {
+    if (width > windowWidth && !isVideo(src) && !isAudio(src) && !isPDF(src)) {
       nextX += (windowWidth - width) / 2;
     }
-    const scaleFactor = zoom * (targetWidth / width);
+    const scaleFactor = isVideo(src) || isAudio(src) || isPDF(src) ? 1 : zoom * (targetWidth / width);
 
     return {
       transform: `translate3d(${nextX}px,${y}px,0) scale3d(${scaleFactor},${scaleFactor},1)`,
@@ -292,7 +302,8 @@ class ReactImageLightbox extends Component {
       // Use full-size image if available
       fitSizes = this.getFitSizes(
         this.imageCache[imageSrc].width,
-        this.imageCache[imageSrc].height
+        this.imageCache[imageSrc].height,
+        false
       );
     } else if (this.isImageLoaded(this.props[`${srcType}Thumbnail`])) {
       // Fall back to using thumbnail if the image has not been loaded
@@ -300,7 +311,7 @@ class ReactImageLightbox extends Component {
       fitSizes = this.getFitSizes(
         this.imageCache[imageSrc].width,
         this.imageCache[imageSrc].height,
-        true
+        false
       );
     } else {
       return null;
@@ -310,6 +321,7 @@ class ReactImageLightbox extends Component {
       src: imageSrc,
       height: this.imageCache[imageSrc].height,
       width: this.imageCache[imageSrc].width,
+      content: this.imageCache[imageSrc].content ? this.imageCache[imageSrc].content : false,
       targetHeight: fitSizes.height,
       targetWidth: fitSizes.width,
     };
@@ -318,6 +330,7 @@ class ReactImageLightbox extends Component {
   // Get sizing for when an image is larger than the window
   getFitSizes(width, height, stretch) {
     const boxSize = this.getLightboxRect();
+
     let maxHeight = boxSize.height - this.props.imagePadding * 2;
     let maxWidth = boxSize.width - this.props.imagePadding * 2;
 
@@ -325,7 +338,6 @@ class ReactImageLightbox extends Component {
       maxHeight = Math.min(maxHeight, height);
       maxWidth = Math.min(maxWidth, width);
     }
-
     const maxRatio = maxWidth / maxHeight;
     const srcRatio = width / height;
 
@@ -565,7 +577,7 @@ class ReactImageLightbox extends Component {
     const currentTime = new Date();
     if (
       currentTime.getTime() - this.lastKeyDownTime <
-        this.props.keyRepeatLimit &&
+      this.props.keyRepeatLimit &&
       keyCode !== KEYS.ESC
     ) {
       return;
@@ -1114,9 +1126,22 @@ class ReactImageLightbox extends Component {
       this.imageCache[imageSrc].loaded
     );
   }
+  makeRequest(method, url) {
+    let contentfile = "";
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, url, false);
+    xhr.setRequestHeader("RANGE", "bytes=0-1024");
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState === 4) {
+        contentfile = xhr.response;
+      }
 
+    }
+    xhr.send();
+    return contentfile;
+  }
   // Load image from src and call callback with image width and height on load
-  loadImage(srcType, imageSrc, done) {
+  loadImage(srcType, imageSrc, done, MimeType) {
     // Return the image info if it is already cached
     if (this.isImageLoaded(imageSrc)) {
       this.setTimeout(() => {
@@ -1124,8 +1149,101 @@ class ReactImageLightbox extends Component {
       }, 1);
       return;
     }
+    let inMemoryImage = null;
+    if (isText(MimeType)) {
+      const value = this.makeRequest("GET", imageSrc);
+      this.imageCache[imageSrc] = {
+        loaded: true,
+        width: 720,
+        height: 500,
+        content: value,
+        isTextFile: true
+      };
+      done();
+      return;
 
-    const inMemoryImage = new global.Image();
+    } else if (!isImage(imageSrc) && !isVideo(imageSrc) && !isAudio(imageSrc) && !isPDF(imageSrc)) {
+      this.imageCache[imageSrc] = {
+        loaded: true,
+        width: 720,
+        height: 500,
+      };
+      done();
+      return;
+    } else if (isPDF(imageSrc)) {
+      this.imageCache[imageSrc] = {
+        loaded: true,
+        width: 720,
+        height: 500,
+      };
+      done();
+      return;
+    } else if (isVideo(imageSrc)) {
+      const el = global.document.createElement('video');
+      el.preload = 'auto';
+      inMemoryImage = el;
+
+      const self = inMemoryImage;
+      inMemoryImage.addEventListener(
+        'loadedmetadata',
+        () => {
+          // retrieve dimensions
+          let height = self.videoHeight;
+          let width = self.videoWidth;
+
+          // eslint-disable-next-line no-restricted-globals
+          if (isNaN(width) || parseInt(width, 10) === 0) width = 720;
+
+          // eslint-disable-next-line no-restricted-globals
+          if (isNaN(height) || parseInt(height, 10) === 0) height = 500;
+
+          this.props.onImageLoad(imageSrc, srcType, inMemoryImage);
+
+          this.imageCache[imageSrc] = {
+            loaded: true,
+            width,
+            height,
+          };
+
+          done();
+        },
+        false
+      );
+    } else if (isAudio(imageSrc)) {
+      const el = global.document.createElement('audio');
+      el.preload = 'auto';
+      inMemoryImage = el;
+
+      const self = inMemoryImage;
+      inMemoryImage.addEventListener(
+        'loadedmetadata',
+        () => {
+          // retrieve dimensions
+          let height = self.videoHeight;
+          let width = self.videoWidth;
+
+          // eslint-disable-next-line no-restricted-globals
+          if (isNaN(width) || parseInt(width, 10) === 0) width = 720;
+
+          // eslint-disable-next-line no-restricted-globals
+          if (isNaN(height) || parseInt(height, 10) === 0) height = 500;
+
+          this.props.onImageLoad(imageSrc, srcType, inMemoryImage);
+
+          this.imageCache[imageSrc] = {
+            loaded: true,
+            width,
+            height,
+          };
+
+          done();
+        },
+        false
+      );
+    } else {
+
+      inMemoryImage = new global.Image();
+    }
 
     if (this.props.imageCrossOrigin) {
       inMemoryImage.crossOrigin = this.props.imageCrossOrigin;
@@ -1150,10 +1268,8 @@ class ReactImageLightbox extends Component {
         width: inMemoryImage.width,
         height: inMemoryImage.height,
       };
-
       done();
     };
-
     inMemoryImage.src = imageSrc;
   }
 
@@ -1191,7 +1307,8 @@ class ReactImageLightbox extends Component {
         this.loadImage(
           type,
           props[type],
-          generateLoadDoneCallback(type, props[type])
+          generateLoadDoneCallback(type, props[type]),
+          props[`${type}MimeType`],
         );
       }
     });
@@ -1312,7 +1429,6 @@ class ReactImageLightbox extends Component {
         return;
       }
       const bestImageInfo = this.getBestImageForType(srcType);
-
       const imageStyle = {
         ...transitionStyle,
         ...ReactImageLightbox.getTransform({
@@ -1373,37 +1489,120 @@ class ReactImageLightbox extends Component {
       }
 
       const imageSrc = bestImageInfo.src;
-      if (discourageDownloads) {
-        imageStyle.backgroundImage = `url('${imageSrc}')`;
+      if (bestImageInfo.content) {
+        const windowWidth = getWindowWidth();
+        const windowHeight = getWindowHeight();
+        imageStyle.width = windowWidth - 100;
+        imageStyle.height = windowHeight - 100;
         images.push(
           <div
-            className={`${imageClass} ril__image ril__imageDiscourager`}
-            onDoubleClick={this.handleImageDoubleClick}
-            onWheel={this.handleImageMouseWheel}
-            style={imageStyle}
             key={imageSrc + keyEndings[srcType]}
+            style={imageStyle}
+            className={`${imageClass} ril__image`}
           >
-            <div className="ril-download-blocker ril__downloadBlocker" />
+            <textarea defaultValue={bestImageInfo.content} readOnly style={imageStyle}  key={this.props[srcType] + keyEndings[srcType]}/>
+          </div>
+        );
+      } else if (!isImage(imageSrc) && !isVideo(imageSrc) && !isAudio(imageSrc) && !isPDF(imageSrc)) {
+        imageStyle.width = 300;
+        imageStyle.height = 300;
+        const Extension = getExtension(imageSrc);
+        images.push(
+          <div
+            key={imageSrc + keyEndings[srcType]}
+            style={imageStyle}
+            className={`${imageClass} ril__image`}
+          >
+            <FileIcon size={60} extension={Extension} {...defaultStyles[Extension]} key={this.props[srcType] + keyEndings[srcType]} />
+          </div>
+        );
+      } else if (isPDF(imageSrc)) {
+        delete imageStyle.width
+        delete imageStyle.height
+        images.push(
+          <div
+            key={imageSrc + keyEndings[srcType]}
+            className={`${imageClass} ril__image`}
+          >
+            <object data={imageSrc} type="application/pdf" width="100%" height="100%" style={imageStyle} key={this.props[srcType] + keyEndings[srcType]}>
+              <p>Alternative text - include a link <a href={imageSrc}>to the PDF!</a></p>
+            </object>
           </div>
         );
       } else {
-        images.push(
-          <img
-            {...(imageCrossOrigin ? { crossOrigin: imageCrossOrigin } : {})}
-            className={`${imageClass} ril__image`}
-            onDoubleClick={this.handleImageDoubleClick}
-            onWheel={this.handleImageMouseWheel}
-            onDragStart={e => e.preventDefault()}
-            style={imageStyle}
-            src={imageSrc}
-            key={imageSrc + keyEndings[srcType]}
-            alt={
-              typeof imageTitle === 'string' ? imageTitle : translate('Image')
-            }
-            draggable={false}
-          />
-        );
+        if (discourageDownloads) {
+          imageStyle.backgroundImage = `url('${imageSrc}')`;
+          images.push(
+            <div
+              className={`${imageClass} ril__image ril__imageDiscourager`}
+              onDoubleClick={this.handleImageDoubleClick}
+              onWheel={this.handleImageMouseWheel}
+              style={imageStyle}
+              key={imageSrc + keyEndings[srcType]}
+            >
+              <div className="ril-download-blocker ril__downloadBlocker" />
+            </div>
+          );
+        } else {
+          images.push(
+            isVideo(imageSrc) ? (
+
+              <div
+                key={imageSrc + keyEndings[srcType]}
+                style={imageStyle}
+                className={`${imageClass} ril__image`}
+              >
+                {imageClass === "ril-image-current" &&
+                  <Player
+                    ref={player => {
+                      this.player = player;
+                    }}
+                    autoPlay={true}
+                    playsInline
+                    key={imageSrc + keyEndings[srcType]}
+                  >
+                    <source src={imageSrc} type="video/mp4" />
+                  </Player>
+                }
+
+              </div>
+            ) : (
+                <div>
+                  {isAudio(imageSrc) ?
+                    <div>
+                      <audio
+                        style={imageStyle}
+                        className={`${imageClass} ril__image`}
+                        key={imageSrc + keyEndings[srcType]}
+                        src={imageSrc}
+                        autoPlay={imageClass === "ril-image-current" ? true : false}
+                        controls
+                      />
+                    </div>
+                    :
+                    <img
+                      {...(imageCrossOrigin ? { crossOrigin: imageCrossOrigin } : {})}
+                      onDoubleClick={this.handleImageDoubleClick}
+                      onWheel={this.handleImageMouseWheel}
+                      className={`${imageClass} ril__image`}
+                      onDragStart={e => e.preventDefault()}
+                      style={imageStyle}
+                      src={imageSrc}
+                      key={imageSrc + keyEndings[srcType]}
+                      alt={
+                        typeof imageTitle === 'string' ? imageTitle : translate('Image')
+                      }
+                      draggable={false}
+                    />
+                  }
+                </div>
+
+              )
+
+          );
+        }
       }
+
     };
 
     const zoomMultiplier = this.getZoomMultiplier();
@@ -1465,9 +1664,8 @@ class ReactImageLightbox extends Component {
       >
         <div // eslint-disable-line jsx-a11y/no-static-element-interactions
           // Floating modal with closing animations
-          className={`ril-outer ril__outer ril__outerAnimating ${
-            this.props.wrapperClassName
-          } ${isClosing ? 'ril-closing ril__outerClosing' : ''}`}
+          className={`ril-outer ril__outer ril__outerAnimating ${this.props.wrapperClassName
+            } ${isClosing ? 'ril-closing ril__outerClosing' : ''}`}
           style={{
             transition: `opacity ${animationDuration}ms`,
             animationDuration: `${animationDuration}ms`,
@@ -1532,6 +1730,20 @@ class ReactImageLightbox extends Component {
                     {button}
                   </li>
                 ))}
+              <li className="ril-toolbar__item ril__toolbarItem">
+                <a // Lightbox zoom out button
+                  type="button"
+                  target="_blank"
+                  href={this.props.mainSrc}
+                  download
+                  key="download"
+                  className={[
+                    'ril__toolbarItemChild',
+                    'ril__builtinButton',
+                    'ril__downloadButton',
+                  ].join(' ')}
+                />
+              </li>
 
               {enableZoom && (
                 <li className="ril-toolbar__item ril__toolbarItem">
@@ -1758,6 +1970,12 @@ ReactImageLightbox.propTypes = {
   closeLabel: PropTypes.string,
 
   imageLoadErrorMessage: PropTypes.node,
+
+  // Image title
+  mainSrcMimeType: PropTypes.string,
+  nextSrcMimeType: PropTypes.string,
+  prevSrcMimeType: PropTypes.string,
+
 };
 
 ReactImageLightbox.defaultProps = {
@@ -1780,11 +1998,11 @@ ReactImageLightbox.defaultProps = {
   nextLabel: 'Next image',
   nextSrc: null,
   nextSrcThumbnail: null,
-  onAfterOpen: () => {},
-  onImageLoadError: () => {},
-  onImageLoad: () => {},
-  onMoveNextRequest: () => {},
-  onMovePrevRequest: () => {},
+  onAfterOpen: () => { },
+  onImageLoadError: () => { },
+  onImageLoad: () => { },
+  onMoveNextRequest: () => { },
+  onMovePrevRequest: () => { },
   prevLabel: 'Previous image',
   prevSrc: null,
   prevSrcThumbnail: null,

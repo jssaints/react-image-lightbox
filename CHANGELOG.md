@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [5.1.5](https://github.com/frontend-collective/react-image-lightbox/compare/v5.1.4...v5.1.5) (2020-07-30)
+
+### [5.1.4](https://github.com/frontend-collective/react-image-lightbox/compare/v5.1.3...v5.1.4) (2020-07-30)
+
+### [5.1.3](https://github.com/frontend-collective/react-image-lightbox/compare/v5.1.1...v5.1.3) (2020-07-30)
+
 ### [5.1.1](https://github.com/frontend-collective/react-image-lightbox/compare/v5.1.0...v5.1.1) (2019-11-12)
 
 
